@@ -93,9 +93,20 @@ class Sandbox:
         print(sb.id)
     """
 
-    def __init__(self, data: dict[str, Any], client: Client) -> None:
+    def __init__(
+        self,
+        data: dict[str, Any],
+        client: Client,
+        *,
+        owns_client: bool = False,
+    ) -> None:
         self._data = data
         self._client = client
+        # True when this Sandbox instantiated the Client itself (vs the caller
+        # passing `client=` for sharing across multiple Sandbox instances).
+        # On owned clients, kill() / __aexit__ also close the httpx pool so
+        # long-running agents don't leak connections.
+        self._owns_client = owns_client
 
         from .browser import Browser
         from .env import Env
@@ -168,11 +179,18 @@ class Sandbox:
             )
 
         async def _create() -> Sandbox:
+            owns = client is None
             c = client or Client(server=server, api_key=api_key)
-            body = _build_create_body(image, resources, network, env, timeout, ttl, labels)
-            params: dict[str, str] = {"wait": "running"} if wait else {}
-            resp = await c.post("/v1/sandboxes", json=body, params=params)
-            return cls(resp.json(), c)
+            try:
+                body = _build_create_body(image, resources, network, env, timeout, ttl, labels)
+                params: dict[str, str] = {"wait": "running"} if wait else {}
+                resp = await c.post("/v1/sandboxes", json=body, params=params)
+            except BaseException:
+                # If create fails and we own the client, don't leak its pool.
+                if owns:
+                    await c.aclose()
+                raise
+            return cls(resp.json(), c, owns_client=owns)
 
         return maybe_await(_create())
 
@@ -188,9 +206,15 @@ class Sandbox:
         """Attach to an existing sandbox by ID."""
 
         async def _get() -> Sandbox:
+            owns = client is None
             c = client or Client(server=server, api_key=api_key)
-            resp = await c.get(f"/v1/sandboxes/{sandbox_id}")
-            return cls(resp.json(), c)
+            try:
+                resp = await c.get(f"/v1/sandboxes/{sandbox_id}")
+            except BaseException:
+                if owns:
+                    await c.aclose()
+                raise
+            return cls(resp.json(), c, owns_client=owns)
 
         return maybe_await(_get())
 
@@ -206,8 +230,14 @@ class Sandbox:
         """List all sandboxes for the current tenant."""
 
         async def _list() -> list[Sandbox]:
+            owns = client is None
             c = client or Client(server=server, api_key=api_key)
-            resp = await c.get("/v1/sandboxes")
+            try:
+                resp = await c.get("/v1/sandboxes")
+            except BaseException:
+                if owns:
+                    await c.aclose()
+                raise
             data = resp.json()
             sandboxes: list[dict[str, Any]] = data.get("sandboxes", [])
             if labels:
@@ -218,7 +248,16 @@ class Sandbox:
                         (s.get("labels") or {}).get(k) == v for k, v in labels.items()
                     )
                 ]
-            return [cls(s, c) for s in sandboxes]
+            # Multiple Sandbox instances share a single client. The first
+            # owns it so closing the first (or `async with` on it) tears
+            # down the shared pool; the rest just hold a reference.
+            result: list[Sandbox] = []
+            for i, s in enumerate(sandboxes):
+                result.append(cls(s, c, owns_client=(owns and i == 0)))
+            if owns and not result:
+                # Empty list with owned client: nothing to hold it. Close.
+                await c.aclose()
+            return result
 
         return maybe_await(_list())
 
@@ -233,8 +272,24 @@ class Sandbox:
         await self._client.post(f"/v1/sandboxes/{self.id}/resume")
 
     async def kill(self) -> None:
-        """Destroy the sandbox (irreversible)."""
-        await self._client.delete(f"/v1/sandboxes/{self.id}")
+        """Destroy the sandbox (irreversible).
+
+        If this Sandbox owns its HTTP client (created by ``create()`` /
+        ``get()`` without an explicit ``client=`` arg), the underlying
+        httpx connection pool is also closed to avoid leaking sockets in
+        long-running agents.
+        """
+        from .errors import NotFoundError
+
+        try:
+            await self._client.delete(f"/v1/sandboxes/{self.id}")
+        except NotFoundError:
+            # Already gone — idempotent kill is the expected DX.
+            pass
+        finally:
+            if self._owns_client:
+                self._owns_client = False  # idempotent
+                await self._client.aclose()
 
     # ── Command execution ─────────────────────────────────────────────────
 

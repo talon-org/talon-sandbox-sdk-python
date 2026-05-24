@@ -138,3 +138,63 @@ async def test_create_sends_env_and_labels() -> None:
         payload = json.loads(route.calls[0].request.read())
         assert payload["env"] == {"NODE_ENV": "development"}
         assert payload["labels"] == {"project": "agent-x"}
+
+
+# ─── HTTP client lifecycle (C2 regression) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_kill_closes_owned_client() -> None:
+    """kill() must close the underlying httpx pool when Sandbox owns it."""
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        router.delete("/v1/sandboxes/sbx_test123").mock(return_value=httpx.Response(204))
+        sb = await Sandbox.create()
+        client = sb._client
+        assert sb._owns_client is True
+        await sb.kill()
+        assert sb._owns_client is False
+        # httpx.AsyncClient.is_closed reports the pool state
+        assert client._http.is_closed is True
+
+
+@pytest.mark.asyncio
+async def test_kill_preserves_passed_client() -> None:
+    """When the caller passed a client, kill() must NOT close it."""
+    from talon_sandbox import Client
+
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        router.delete("/v1/sandboxes/sbx_test123").mock(return_value=httpx.Response(204))
+        my_client = Client(server=BASE, api_key="ask_x")
+        try:
+            sb = await Sandbox.create(client=my_client)
+            assert sb._owns_client is False
+            await sb.kill()
+            # Caller's client still usable
+            assert my_client._http.is_closed is False
+        finally:
+            await my_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aexit_closes_owned_client() -> None:
+    """async with Sandbox.create(): block must close on exit."""
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        router.delete("/v1/sandboxes/sbx_test123").mock(return_value=httpx.Response(204))
+        async with await Sandbox.create() as sb:
+            client = sb._client
+        assert client._http.is_closed is True
+
+
+@pytest.mark.asyncio
+async def test_kill_idempotent_on_404() -> None:
+    """kill() on an already-destroyed sandbox should not raise."""
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        router.delete("/v1/sandboxes/sbx_test123").mock(return_value=httpx.Response(404, text=""))
+        sb = await Sandbox.create()
+        client = sb._client
+        await sb.kill()  # must not raise
+        assert client._http.is_closed is True

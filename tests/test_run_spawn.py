@@ -1,6 +1,7 @@
 """Tests for sb.run() and sb.spawn()."""
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -113,3 +114,110 @@ async def test_spawn_event_emitter() -> None:
         proc._mark_exited(0)
         assert exits == [0]
         assert proc.exit_code == 0
+
+
+# ─── Spawn streaming (C1 regression) ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_spawn_wait_resolves_when_process_exits() -> None:
+    """proc.wait() must return when the server marks the process exited."""
+    exited = {**PROCESS_DATA, "state": "exited", "exit_code": 0}
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        router.post("/v1/sandboxes/sbx_test123/processes").mock(
+            return_value=httpx.Response(201, json=PROCESS_DATA)
+        )
+        router.get(
+            "/v1/sandboxes/sbx_test123/processes/proc_abc123/logs"
+        ).mock(return_value=httpx.Response(200, text=""))
+        # First /processes call returns running, second returns exited.
+        router.get("/v1/sandboxes/sbx_test123/processes").mock(
+            side_effect=[
+                httpx.Response(200, json={"processes": [PROCESS_DATA]}),
+                httpx.Response(200, json={"processes": [exited]}),
+            ]
+        )
+        # Speed up the poll loop so the test finishes quickly.
+        from talon_sandbox.process import Process
+        Process.POLL_INTERVAL_SEC = 0.01
+
+        sb = await Sandbox.create()
+        proc = await sb.spawn("npm run dev")
+        code = await asyncio.wait_for(proc.wait(), timeout=2.0)
+        assert code == 0
+        assert proc.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_spawn_emits_stdout_chunks() -> None:
+    """As log bytes accumulate server-side, proc.on('stdout') should fire."""
+    exited = {**PROCESS_DATA, "state": "exited", "exit_code": 0}
+    log_responses = iter([
+        httpx.Response(200, text="hello\n"),
+        httpx.Response(200, text="hello\nworld\n"),
+        httpx.Response(200, text="hello\nworld\n"),  # final drain
+    ])
+    list_responses = iter([
+        httpx.Response(200, json={"processes": [PROCESS_DATA]}),
+        httpx.Response(200, json={"processes": [exited]}),
+    ])
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        router.post("/v1/sandboxes/sbx_test123/processes").mock(
+            return_value=httpx.Response(201, json=PROCESS_DATA)
+        )
+        router.get(
+            "/v1/sandboxes/sbx_test123/processes/proc_abc123/logs"
+        ).mock(side_effect=lambda req: next(log_responses))
+        router.get("/v1/sandboxes/sbx_test123/processes").mock(
+            side_effect=lambda req: next(list_responses)
+        )
+        from talon_sandbox.process import Process
+        Process.POLL_INTERVAL_SEC = 0.01
+
+        sb = await Sandbox.create()
+        proc = await sb.spawn("npm run dev")
+        chunks: list[str] = []
+        proc.on("stdout", lambda c: chunks.append(c))
+        code = await asyncio.wait_for(proc.wait(), timeout=2.0)
+        assert code == 0
+        combined = "".join(chunks)
+        assert "hello" in combined
+        assert "world" in combined
+        # No double-emission of "hello" prefix on the second tick.
+        assert combined.count("hello") == 1
+
+
+@pytest.mark.asyncio
+async def test_spawn_kill_unblocks_wait() -> None:
+    """proc.kill() must cause wait() to return even if poll never sees exit."""
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        router.post("/v1/sandboxes/sbx_test123/processes").mock(
+            return_value=httpx.Response(201, json=PROCESS_DATA)
+        )
+        router.delete(
+            "/v1/sandboxes/sbx_test123/processes/proc_abc123"
+        ).mock(return_value=httpx.Response(204))
+        router.get(
+            "/v1/sandboxes/sbx_test123/processes/proc_abc123/logs"
+        ).mock(return_value=httpx.Response(200, text=""))
+        router.get("/v1/sandboxes/sbx_test123/processes").mock(
+            return_value=httpx.Response(200, json={"processes": [PROCESS_DATA]})
+        )
+        from talon_sandbox.process import Process
+        Process.POLL_INTERVAL_SEC = 0.5  # slow poll so kill wins the race
+
+        sb = await Sandbox.create()
+        proc = await sb.spawn("sleep 999")
+
+        async def kill_after_delay() -> None:
+            await asyncio.sleep(0.05)
+            await proc.kill()
+
+        kill_task = asyncio.create_task(kill_after_delay())
+        code = await asyncio.wait_for(proc.wait(), timeout=2.0)
+        await kill_task
+        # Server didn't mark exited; kill() forced it. -1 is our sentinel.
+        assert code == -1
