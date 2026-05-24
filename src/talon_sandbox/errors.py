@@ -61,17 +61,16 @@ def _raise_for_status(
 ) -> None:
     """Raise the appropriate SandboxError subclass for an HTTP error."""
     msg = _extract_message(body)
-    kwargs: dict[str, str | None] = {"request_id": request_id}
     if status_code in (401, 403):
-        raise AuthError(msg, **kwargs)  # type: ignore[arg-type]
+        raise AuthError(msg, request_id=request_id)
     if status_code == 404:
-        raise NotFoundError(msg, **kwargs)  # type: ignore[arg-type]
+        raise NotFoundError(msg, request_id=request_id)
     if status_code == 409:
-        raise ConflictError(msg, **kwargs)  # type: ignore[arg-type]
+        raise ConflictError(msg, request_id=request_id)
     if status_code == 422:
-        raise QuotaError(msg, **kwargs)  # type: ignore[arg-type]
+        raise QuotaError(msg, request_id=request_id)
     if status_code == 429:
-        raise RateLimitError(msg, **kwargs)  # type: ignore[arg-type]
+        raise RateLimitError(msg, request_id=request_id)
     if status_code >= 500:
-        raise ServerError(msg, **kwargs)  # type: ignore[arg-type]
-    raise SandboxError(msg, **kwargs)  # type: ignore[arg-type]
+        raise ServerError(msg, request_id=request_id)
+    raise SandboxError(msg, request_id=request_id)

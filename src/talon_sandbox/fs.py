@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import posixpath
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator
 
 from ._client import Client
 from .errors import NotFoundError

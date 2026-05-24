@@ -88,7 +88,7 @@ class Process(EventEmitter):
         self._emit("exit", exit_code)
 
     @classmethod
-    def _from_api(cls, data: dict[str, Any], sandbox_id: str, client: Client) -> "Process":
+    def _from_api(cls, data: dict[str, Any], sandbox_id: str, client: Client) -> Process:
         started_ts = data.get("started_at", 0)
         started = (
             datetime.fromtimestamp(started_ts, tz=timezone.utc)

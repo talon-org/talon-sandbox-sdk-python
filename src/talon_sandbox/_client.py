@@ -108,7 +108,7 @@ class Client:
     async def aclose(self) -> None:
         await self._http.aclose()
 
-    async def __aenter__(self) -> "Client":
+    async def __aenter__(self) -> Client:
         return self
 
     async def __aexit__(self, *args: Any) -> None:

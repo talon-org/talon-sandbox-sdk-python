@@ -25,13 +25,13 @@ class EventEmitter:
     def __init__(self) -> None:
         self._listeners: dict[str, list[Callable[..., Any]]] = {}
 
-    def on(self, event: str, callback: Callable[..., Any]) -> "EventEmitter":
+    def on(self, event: str, callback: Callable[..., Any]) -> EventEmitter:
         """Register *callback* for *event*. Returns self for chaining."""
         self._validate_event(event)
         self._listeners.setdefault(event, []).append(callback)
         return self
 
-    def off(self, event: str, callback: Callable[..., Any]) -> "EventEmitter":
+    def off(self, event: str, callback: Callable[..., Any]) -> EventEmitter:
         """Remove *callback* from *event* listeners."""
         try:
             self._listeners.get(event, []).remove(callback)

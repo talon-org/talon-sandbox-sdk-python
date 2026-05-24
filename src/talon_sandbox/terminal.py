@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json as _json
-from typing import Any, AsyncIterator
+from typing import Any
 
 import websockets
 import websockets.exceptions
@@ -71,7 +71,7 @@ class PTYSession(EventEmitter):
                 except asyncio.CancelledError:
                     pass
 
-    def __aiter__(self) -> "PTYSession":
+    def __aiter__(self) -> PTYSession:
         return self
 
     async def __anext__(self) -> bytes:
@@ -83,7 +83,7 @@ class PTYSession(EventEmitter):
                 continue
         raise StopAsyncIteration
 
-    async def __aenter__(self) -> "PTYSession":
+    async def __aenter__(self) -> PTYSession:
         return self
 
     async def __aexit__(self, *args: Any) -> None:

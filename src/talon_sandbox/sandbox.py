@@ -1,6 +1,7 @@
 """Sandbox — main entry point for talon-sandbox SDK v2."""
 from __future__ import annotations
 
+import builtins
 import shlex
 import time
 from datetime import datetime, timezone
@@ -166,7 +167,7 @@ class Sandbox:
                 "allowlist|open|sealed|deny|offline|restricted-egress|full-egress"
             )
 
-        async def _create() -> "Sandbox":
+        async def _create() -> Sandbox:
             c = client or Client(server=server, api_key=api_key)
             body = _build_create_body(image, resources, network, env, timeout, ttl, labels)
             params: dict[str, str] = {"wait": "running"} if wait else {}
@@ -186,7 +187,7 @@ class Sandbox:
     ) -> Any:
         """Attach to an existing sandbox by ID."""
 
-        async def _get() -> "Sandbox":
+        async def _get() -> Sandbox:
             c = client or Client(server=server, api_key=api_key)
             resp = await c.get(f"/v1/sandboxes/{sandbox_id}")
             return cls(resp.json(), c)
@@ -204,7 +205,7 @@ class Sandbox:
     ) -> Any:
         """List all sandboxes for the current tenant."""
 
-        async def _list() -> list["Sandbox"]:
+        async def _list() -> list[Sandbox]:
             c = client or Client(server=server, api_key=api_key)
             resp = await c.get("/v1/sandboxes")
             data = resp.json()
@@ -239,7 +240,7 @@ class Sandbox:
 
     async def run(
         self,
-        command: str | list[str],
+        command: str | builtins.list[str],
         *,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
@@ -282,7 +283,7 @@ class Sandbox:
 
     async def spawn(
         self,
-        command: str | list[str],
+        command: str | builtins.list[str],
         *,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
@@ -314,7 +315,7 @@ class Sandbox:
         )
         return Process._from_api(resp.json(), self.id, self._client)
 
-    async def processes(self) -> list[Process]:
+    async def processes(self) -> builtins.list[Process]:
         """List all processes running in the sandbox."""
         resp = await self._client.get(f"/v1/sandboxes/{self.id}/processes")
         data = resp.json()
@@ -372,7 +373,7 @@ class Sandbox:
         """Remove a port exposure."""
         await self._client.delete(f"/v1/sandboxes/{self.id}/expose/{port}")
 
-    async def exposed(self) -> list[dict[str, Any]]:
+    async def exposed(self) -> builtins.list[dict[str, Any]]:
         """List all exposed ports and their URLs."""
         resp = await self._client.get(f"/v1/sandboxes/{self.id}/expose")
         result: list[dict[str, Any]] = resp.json().get("ports", [])
@@ -380,7 +381,7 @@ class Sandbox:
 
     # ── Context manager ───────────────────────────────────────────────────
 
-    async def __aenter__(self) -> "Sandbox":
+    async def __aenter__(self) -> Sandbox:
         return self
 
     async def __aexit__(self, *args: Any) -> None:
