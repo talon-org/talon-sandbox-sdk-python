@@ -39,6 +39,7 @@ def _build_create_body(
     timeout: str | int | None,
     ttl: str | int | None,
     labels: dict[str, str] | None,
+    network_allowed_hosts: list[str] | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {}
     if image:
@@ -50,6 +51,10 @@ def _build_create_body(
                 "allowlist|open|sealed|deny|offline|restricted-egress|full-egress"
             )
         body["network_policy"] = network
+    # 仅 allowlist/restricted-egress 策略有意义。
+    # 非空时覆盖 worker 全局白名单；空/None 则回退到全局配置。
+    if network_allowed_hosts:
+        body["network_allowed_hosts"] = network_allowed_hosts
     if env:
         body["env"] = env
     if labels:
@@ -159,6 +164,7 @@ class Sandbox:
         timeout: str | int | None = None,
         ttl: str | int | None = None,
         labels: dict[str, str] | None = None,
+        network_allowed_hosts: list[str] | None = None,
         wait: bool = True,
         client: Client | None = None,
         server: str | None = None,
@@ -170,6 +176,11 @@ class Sandbox:
 
             sb = await Sandbox.create(image="node:20-bookworm")  # async
             sb = Sandbox.create(image="node:20-bookworm")        # sync
+
+        Args:
+            network_allowed_hosts: allowlist/restricted-egress 策略下放行的 host 列表
+                （域名/IP/CIDR）。非空时覆盖 worker 全局白名单；None 或空列表则回退全局。
+                仅 allowlist 策略有意义，其他策略忽略此字段。
         """
         # Validate early (before creating coroutine) so sync callers get immediate errors
         if network is not None and network not in _VALID_NETWORKS:
@@ -182,7 +193,10 @@ class Sandbox:
             owns = client is None
             c = client or Client(server=server, api_key=api_key)
             try:
-                body = _build_create_body(image, resources, network, env, timeout, ttl, labels)
+                body = _build_create_body(
+                    image, resources, network, env, timeout, ttl, labels,
+                    network_allowed_hosts,
+                )
                 params: dict[str, str] = {"wait": "running"} if wait else {}
                 resp = await c.post("/v1/sandboxes", json=body, params=params)
             except BaseException:
