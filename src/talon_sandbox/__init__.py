@@ -38,12 +38,16 @@ from .process import Process, ProcessResult
 from .sandbox import Sandbox
 from .terminal import PTYSession, Terminal
 
+# list_images 是顶层便捷函数，底层委托给 Sandbox.list_images()
+list_images = Sandbox.list_images
+
 __version__ = "0.1.0"
 __all__ = [
     # Core
     "Sandbox",
     "configure",
     "Client",
+    "list_images",
     # Sub-objects
     "Fs",
     "FsEntry",

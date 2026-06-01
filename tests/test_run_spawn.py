@@ -191,6 +191,49 @@ async def test_spawn_emits_stdout_chunks() -> None:
 
 
 @pytest.mark.asyncio
+async def test_spawn_expose_ports_sent_in_body() -> None:
+    """spawn(expose_ports=[5173]) 应将 expose_ports 写入请求体。"""
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        spawn_route = router.post("/v1/sandboxes/sbx_test123/processes").mock(
+            return_value=httpx.Response(201, json=PROCESS_DATA)
+        )
+        sb = await Sandbox.create()
+        proc = await sb.spawn("npm run dev", expose_ports=[5173])
+        assert proc.id == "proc_abc123"
+        payload = json.loads(spawn_route.calls[0].request.read())
+        assert payload["expose_ports"] == [5173]
+
+
+@pytest.mark.asyncio
+async def test_spawn_expose_ports_none_omitted() -> None:
+    """spawn() 不传 expose_ports 时请求体不含该字段。"""
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        spawn_route = router.post("/v1/sandboxes/sbx_test123/processes").mock(
+            return_value=httpx.Response(201, json=PROCESS_DATA)
+        )
+        sb = await Sandbox.create()
+        await sb.spawn("npm run dev")
+        payload = json.loads(spawn_route.calls[0].request.read())
+        assert "expose_ports" not in payload
+
+
+@pytest.mark.asyncio
+async def test_spawn_expose_ports_multiple() -> None:
+    """spawn(expose_ports=[3000, 8080]) 支持多端口列表。"""
+    with respx.mock(base_url=BASE) as router:
+        router.post("/v1/sandboxes").mock(return_value=httpx.Response(201, json=SANDBOX_DATA))
+        spawn_route = router.post("/v1/sandboxes/sbx_test123/processes").mock(
+            return_value=httpx.Response(201, json=PROCESS_DATA)
+        )
+        sb = await Sandbox.create()
+        await sb.spawn("python -m http.server 3000", expose_ports=[3000, 8080])
+        payload = json.loads(spawn_route.calls[0].request.read())
+        assert payload["expose_ports"] == [3000, 8080]
+
+
+@pytest.mark.asyncio
 async def test_spawn_kill_unblocks_wait() -> None:
     """proc.kill() must cause wait() to return even if poll never sees exit."""
     with respx.mock(base_url=BASE) as router:

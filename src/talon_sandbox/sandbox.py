@@ -275,7 +275,62 @@ class Sandbox:
 
         return maybe_await(_list())
 
+    @classmethod
+    def list_images(
+        cls,
+        *,
+        client: Client | None = None,
+        server: str | None = None,
+        api_key: str | None = None,
+    ) -> Any:
+        """列出平台上所有可用的 sandbox 镜像（GET /v1/images）。
+
+        这是顶层端点，与具体 sandbox 无关。
+
+        Works both with and without ``await``::
+
+            images = await Sandbox.list_images()   # async
+            images = Sandbox.list_images()          # sync
+
+        Returns:
+            ``list[dict]``，每个 dict 对应一个 ImageDTO，字段：
+            ``id``, ``name``, ``url``, ``sha256``, ``os``, ``arch``,
+            ``source`` ("builtin"|"admin"), ``is_default``, ``description``,
+            ``created_at``。
+        """
+
+        async def _list_images() -> list[dict[str, Any]]:
+            owns = client is None
+            c = client or Client(server=server, api_key=api_key)
+            try:
+                resp = await c.get("/v1/images")
+                images: list[dict[str, Any]] = resp.json().get("images", [])
+                return images
+            finally:
+                # images 是只读顶层端点，临时 client 用完即关；
+                # 调用方显式传入的 client 不关（owns=False）。
+                if owns:
+                    await c.aclose()
+
+        return maybe_await(_list_images())
+
     # ── Lifecycle ─────────────────────────────────────────────────────────
+
+    async def start(self) -> None:
+        """从 stopped 状态启动 sandbox（stopped→running）。
+
+        与 resume（冻结态恢复）不同：start 针对的是完全停止的 sandbox。
+        成功返回 None（后端 204 No Content）。
+        """
+        await self._client.post(f"/v1/sandboxes/{self.id}/start")
+
+    async def stop(self) -> None:
+        """将运行中的 sandbox 停止（running→stopped）。
+
+        与 pause（冻结进程）不同：stop 彻底停止 sandbox，可通过 start() 重启。
+        成功返回 None（后端 204 No Content）。
+        """
+        await self._client.post(f"/v1/sandboxes/{self.id}/stop")
 
     async def pause(self) -> None:
         """Freeze all processes inside the sandbox."""
@@ -356,6 +411,7 @@ class Sandbox:
         *,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
+        expose_ports: builtins.list[int] | None = None,
     ) -> Process:
         """Start a long-running process and return a handle.
 
@@ -363,6 +419,9 @@ class Sandbox:
             command: Shell command string or argv list.
             env: Additional environment variables.
             cwd: Working directory inside sandbox.
+            expose_ports: 进程声明对外暴露的容器端口，如 [5173]。
+                预览反向代理准入与 DNAT 路由依赖此字段；
+                启动 dev server 等常驻服务时须传入，否则预览 URL 无法路由到该进程。
 
         Returns:
             Process handle with EventEmitter interface.
@@ -377,6 +436,8 @@ class Sandbox:
             body["env"] = [f"{k}={v}" for k, v in env.items()]
         if cwd:
             body["cwd"] = cwd
+        if expose_ports:
+            body["expose_ports"] = expose_ports
 
         resp = await self._client.post(
             f"/v1/sandboxes/{self.id}/processes",
@@ -392,6 +453,48 @@ class Sandbox:
             Process._from_api(p, self.id, self._client)
             for p in data.get("processes", [])
         ]
+
+    # ── Agent run ─────────────────────────────────────────────────────────
+
+    async def agent_run(
+        self,
+        goal: str,
+        *,
+        max_steps: int | None = None,
+        llm_model: str | None = None,
+    ) -> dict[str, Any]:
+        """在 sandbox 内同步执行 AI browser agent（Spec 38）。
+
+        通过 POST /v1/sandboxes/{id}/agent/run 调用，最长阻塞 5 分钟。
+        browser-harness 按 goal 自动操作 headless Chromium 完成任务。
+
+        Args:
+            goal: 用自然语言描述 agent 要完成的任务，例如 "搜索 Python 最新版本"。
+            max_steps: 最大步骤数（默认 20，后端硬上限 100）。
+            llm_model: 提示给 harness 使用的 LLM 型号，例如
+                ``"anthropic:claude-sonnet-4-6"``。省略时 harness 使用默认模型。
+
+        Returns:
+            ``AgentRunResponse`` 字典，字段：
+            ``run_id``, ``status`` (completed/failed/timeout),
+            ``duration_ms``, ``steps`` (列表), ``result``, ``exit_code``, ``stderr``。
+
+        Note:
+            LLM API key 应通过 Spec 27 secrets 注入 sandbox 环境变量，
+            不应放在请求体（避免被 audit log 记录）。
+        """
+        body: dict[str, Any] = {"goal": goal}
+        if max_steps is not None:
+            body["max_steps"] = max_steps
+        if llm_model is not None:
+            body["llm_model"] = llm_model
+
+        resp = await self._client.post(
+            f"/v1/sandboxes/{self.id}/agent/run",
+            json=body,
+        )
+        result: dict[str, Any] = resp.json()
+        return result
 
     # ── Port exposure ─────────────────────────────────────────────────────
 
