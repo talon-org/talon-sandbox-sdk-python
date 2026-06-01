@@ -10,7 +10,8 @@ import respx
 from talon_sandbox import Sandbox
 from tests.conftest import SANDBOX_DATA
 
-BASE = "http://localhost:18080"
+# 默认端点与 _config.py resolve_server() 默认值保持一致
+BASE = "https://api.sandbox.talon.net.cn"
 
 EXPOSE_RESP = {
     "port": 5173,

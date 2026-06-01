@@ -27,19 +27,22 @@ def configure(
     Example::
 
         from talon_sandbox import configure
-        configure(server="https://api.example.com", api_key="ask_...")
+        configure(server="https://api.sandbox.talon.net.cn", api_key="ask_...")
     """
     _global_config.server = server
     _global_config.api_key = api_key
 
 
 def resolve_server(explicit: str | None = None) -> str:
-    """Resolve server URL: env > explicit > global > default."""
+    """Resolve server URL: env > explicit > global > default.
+
+    默认指向官方托管端点；自部署用户可通过环境变量或显式参数覆盖。
+    """
     return (
         os.environ.get("TALON_SANDBOX_SERVER")
         or explicit
         or _global_config.server
-        or "http://localhost:18080"
+        or "https://api.sandbox.talon.net.cn"
     ).rstrip("/")
 
 

@@ -20,7 +20,7 @@ class Client:
     Example::
 
         from talon_sandbox import Client
-        client = Client(server="https://api.example.com", api_key="ask_...")
+        client = Client(server="https://api.sandbox.talon.net.cn", api_key="ask_...")
     """
 
     def __init__(
