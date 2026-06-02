@@ -15,7 +15,7 @@ from talon_sandbox import Sandbox
 
 # Async
 async with await Sandbox.create(
-    image="node:20-bookworm",
+    image="talon-alpine",
     resources={"cpu": 2, "memory": "4GiB"},
     network="allowlist",
     timeout="30m",
@@ -24,7 +24,7 @@ async with await Sandbox.create(
     print(result.stdout)
 
 # Sync (no await needed)
-sb = Sandbox.create(image="node:20-bookworm")
+sb = Sandbox.create(image="talon-alpine")
 print(sb.id)
 ```
 

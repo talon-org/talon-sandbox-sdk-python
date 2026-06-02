@@ -87,14 +87,14 @@ class Sandbox:
 
     Async usage::
 
-        sb = await Sandbox.create(image="node:20-bookworm", resources={"cpu": 2, "memory": "4GiB"})
+        sb = await Sandbox.create(image="talon-alpine", resources={"cpu": 2, "memory": "4GiB"})
         result = await sb.run("node --version")
         print(result.stdout)
         await sb.kill()
 
     Sync usage (no await)::
 
-        sb = Sandbox.create(image="node:20-bookworm")
+        sb = Sandbox.create(image="talon-alpine")
         print(sb.id)
     """
 
@@ -174,8 +174,8 @@ class Sandbox:
 
         Works both with and without ``await``::
 
-            sb = await Sandbox.create(image="node:20-bookworm")  # async
-            sb = Sandbox.create(image="node:20-bookworm")        # sync
+            sb = await Sandbox.create(image="talon-alpine")  # async
+            sb = Sandbox.create(image="talon-alpine")        # sync
 
         Args:
             network_allowed_hosts: allowlist/restricted-egress 策略下放行的 host 列表

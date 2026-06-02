@@ -7,13 +7,13 @@ Quick start::
     from talon_sandbox import Sandbox
 
     async def main():
-        async with await Sandbox.create(image="node:20-bookworm") as sb:
+        async with await Sandbox.create(image="talon-alpine") as sb:
             result = await sb.run("node --version")
             print(result.stdout)
 
 Or synchronously::
 
-    sb = Sandbox.create(image="node:20-bookworm")
+    sb = Sandbox.create(image="talon-alpine")
     print(sb.id)
 """
 from __future__ import annotations

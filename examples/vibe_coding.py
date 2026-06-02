@@ -6,7 +6,7 @@ from talon_sandbox import Sandbox
 
 async def main() -> None:
     sb = await Sandbox.create(
-        image="node:20-bookworm",
+        image="talon-alpine",
         resources={"cpu": 2, "memory": "4GiB"},
         env={"NODE_ENV": "development"},
         ttl="6h",
