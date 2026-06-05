@@ -6,9 +6,12 @@ from typing import Any
 import httpx
 
 from ._config import resolve_api_key, resolve_server
+from ._version import get_user_agent
 from .errors import NetworkError, _raise_for_status
 
 _REQUEST_ID_HEADER = "X-Request-ID"
+# 规范 User-Agent，平台后端据此把请求来源归类为 sdk-python
+_USER_AGENT = get_user_agent()
 
 
 class Client:
@@ -43,9 +46,11 @@ class Client:
         return self._base_url
 
     def _auth_headers(self) -> dict[str, str]:
+        # User-Agent 随每个请求带上，供后端做来源追踪（created_from）
+        headers = {"User-Agent": _USER_AGENT}
         if self._api_key:
-            return {"Authorization": f"Bearer {self._api_key}"}
-        return {}
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        return headers
 
     def _ws_url(self, path: str) -> str:
         url = self._base_url

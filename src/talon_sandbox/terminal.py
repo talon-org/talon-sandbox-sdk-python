@@ -11,6 +11,7 @@ from websockets.asyncio.client import connect as ws_connect
 
 from ._client import Client
 from ._event_emitter import EventEmitter
+from ._version import get_user_agent
 
 
 class PTYSession(EventEmitter):
@@ -120,7 +121,8 @@ class Terminal:
         Returns:
             PTYSession with EventEmitter interface.
         """
-        extra_headers: list[tuple[str, str]] = []
+        # WebSocket 握手同样带上规范 User-Agent，与 HTTP 请求来源追踪保持一致
+        extra_headers: list[tuple[str, str]] = [("User-Agent", get_user_agent())]
         auth = self._client._auth_header_value()
         if auth:
             extra_headers.append(("Authorization", auth))
