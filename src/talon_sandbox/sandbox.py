@@ -241,13 +241,31 @@ class Sandbox:
         server: str | None = None,
         api_key: str | None = None,
     ) -> Any:
-        """List all sandboxes for the current tenant."""
+        """列出当前租户下的所有 sandbox。
+
+        当 ``labels`` 非空时，会同时在服务端和客户端做过滤：
+
+        * **服务端过滤**：将每个 ``(key, value)`` 拼成 ``label=key:value`` 作为
+          query 参数发送（可重复，AND 语义），由服务端先剪裁结果集，减少传输量。
+        * **客户端兜底**：收到响应后仍执行本地过滤，兼容未升级的旧服务端，同时
+          作为防御性双保险。
+
+        ``labels`` 为空时行为不变——不附加任何 ``label`` query 参数。
+        """
 
         async def _list() -> list[Sandbox]:
             owns = client is None
             c = client or Client(server=server, api_key=api_key)
             try:
-                resp = await c.get("/v1/sandboxes")
+                # 服务端 label 过滤：将每个 (key, value) 拼成 "key:value"，
+                # 作为重复 query 参数 ?label=k1:v1&label=k2:v2 发送（AND 语义）。
+                # labels 为空时不附加参数，行为与旧版本完全一致。
+                kwargs: dict[str, Any] = {}
+                if labels:
+                    kwargs["params"] = [
+                        ("label", f"{k}:{v}") for k, v in labels.items()
+                    ]
+                resp = await c.get("/v1/sandboxes", **kwargs)
             except BaseException:
                 if owns:
                     await c.aclose()
@@ -255,6 +273,8 @@ class Sandbox:
             data = resp.json()
             sandboxes: list[dict[str, Any]] = data.get("sandboxes", [])
             if labels:
+                # 客户端兜底过滤：兼容未升级的旧服务端；同时作为防御性双保险，
+                # 防止服务端实现与预期不符时漏掉不匹配的 sandbox。
                 sandboxes = [
                     s
                     for s in sandboxes

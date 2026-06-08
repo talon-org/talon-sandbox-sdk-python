@@ -62,6 +62,7 @@ async def test_get_attaches_to_existing() -> None:
 
 @pytest.mark.asyncio
 async def test_list_returns_filtered_by_labels() -> None:
+    """客户端兜底过滤：服务端返回全量结果，客户端按 labels 过滤后只剩匹配项。"""
     data = {
         "sandboxes": [
             {**SANDBOX_DATA, "labels": {"project": "agent-x"}},  # type: ignore[arg-type]
@@ -73,6 +74,35 @@ async def test_list_returns_filtered_by_labels() -> None:
         sbs = await Sandbox.list(labels={"project": "agent-x"})
         assert len(sbs) == 1
         assert sbs[0].id == "sbx_test123"
+
+
+@pytest.mark.asyncio
+async def test_list_sends_label_query_params() -> None:
+    """服务端过滤：labels 非空时，应把每对 (key, value) 拼成 label=key:value
+    作为 query 参数发送；同一请求中可出现多个 label= 参数（AND 语义）。"""
+    # 模拟服务端已按 label 过滤，只返回匹配结果
+    data = {"sandboxes": [{**SANDBOX_DATA, "labels": {"env": "prod", "team": "infra"}}]}  # type: ignore[arg-type]
+    with respx.mock(base_url=BASE) as router:
+        route = router.get("/v1/sandboxes").mock(return_value=httpx.Response(200, json=data))
+        sbs = await Sandbox.list(labels={"env": "prod", "team": "infra"})
+        assert len(sbs) == 1
+        # 验证请求中确实携带了 label query 参数
+        sent_params = route.calls[0].request.url.params.multi_items()
+        label_values = [v for k, v in sent_params if k == "label"]
+        assert "env:prod" in label_values
+        assert "team:infra" in label_values
+
+
+@pytest.mark.asyncio
+async def test_list_no_label_params_when_labels_empty() -> None:
+    """labels 为空（None）时，不应附加任何 label query 参数，行为与旧版本一致。"""
+    data = {"sandboxes": [SANDBOX_DATA]}
+    with respx.mock(base_url=BASE) as router:
+        route = router.get("/v1/sandboxes").mock(return_value=httpx.Response(200, json=data))
+        await Sandbox.list()
+        sent_params = route.calls[0].request.url.params.multi_items()
+        label_values = [v for k, v in sent_params if k == "label"]
+        assert label_values == []
 
 
 @pytest.mark.asyncio
